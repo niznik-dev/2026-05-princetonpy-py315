@@ -414,17 +414,47 @@ for line in difflib.unified_diff(a, b, fromfile="a", tofile="b", color=True):
     print(line, end="")
 """)
 
-md("### 11e. `threading.serialize_iterator` & `synchronized_iterator`")
-code("""import threading
-# Wrap an iterator so concurrent `next()` calls are serialized
-shared = threading.synchronized_iterator(iter(range(10)))
+md("""### 11e. `threading.serialize_iterator` & `synchronized_iterator`
+
+Two related additions:
+
+- **`serialize_iterator(iterable)`** — a class that wraps an existing iterator instance with a lock, so concurrent `next()` calls are serialized.
+- **`synchronized_iterator(callable)`** — a decorator for *iterator-returning callables* (e.g. `itertools.count`, generator functions). Wrapped calls produce iterators that are themselves serialized.""")
+code("""import threading, itertools
+
+# Pattern 1: wrap an existing iterator instance with serialize_iterator
+shared = threading.serialize_iterator(iter(range(10)))
+seen = []
+seen_lock = threading.Lock()
+
 def worker():
     for v in shared:
-        print(threading.current_thread().name, v, flush=True)
+        with seen_lock:
+            seen.append((threading.current_thread().name, v))
 
 ts = [threading.Thread(target=worker, name=f"t{i}") for i in range(3)]
 for t in ts: t.start()
 for t in ts: t.join()
+
+# Every value 0..9 should appear exactly once across all threads
+print("values seen:", sorted(v for _, v in seen))
+print("by thread:  ", {n: [v for tn, v in seen if tn == n] for n in {n for n, _ in seen}})
+""")
+code("""# Pattern 2: synchronized_iterator as a decorator on a generator function
+@threading.synchronized_iterator
+def counter():
+    n = 0
+    while n < 6:
+        yield n
+        n += 1
+
+it = counter()           # each call gives a thread-safe iterator
+print("first three:", [next(it), next(it), next(it)])
+
+# Or wrap a stateful factory like itertools.count
+atomic_count = threading.synchronized_iterator(itertools.count)
+c = atomic_count()
+print("atomic counter:", [next(c) for _ in range(4)])
 """)
 
 md("""### 11f. `tomllib` — TOML 1.1 support (partial / status uncertain)
